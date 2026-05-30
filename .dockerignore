@@ -1,0 +1,12 @@
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv/
+oakridge-drawings-site/data/
+oakridge_*/images/
+oakridge_*/*.pdf
+.git/
+.playwright-mcp/
+.claude/
+*.png
+.DS_Store

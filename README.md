@@ -15,8 +15,8 @@ full details.
 ### Deploy on Coolify
 
 - New Resource → Application → from this repo
-- Build pack: **Dockerfile**
-- **Base Directory: `/oakridge-drawings-site`** (the Dockerfile lives there)
+- Build pack: **Dockerfile** (root `Dockerfile` builds the app — no base
+  directory config needed)
 - Port: **8000**
 - Add a persistent volume mounted at **`/data`** (caches images + PDFs)
 
