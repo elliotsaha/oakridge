@@ -1,0 +1,22 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# app runtime cache / generated output
+oakridge-drawings-site/data/
+oakridge_*/images/
+oakridge_*/*.pdf
+oakridge_*/urls_encoded.txt
+
+# local test / tooling artifacts
+.playwright-mcp/
+.claude/
+gallery.png
+viewer.png
+viewer2.png
+calendar.png
+
+# os
+.DS_Store

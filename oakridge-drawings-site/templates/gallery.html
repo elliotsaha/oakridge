@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Oakridge Drawings · {{ date }}{% endblock %}
+{% block crumb %}<span class="crumb">/ {{ date }} · {{ items|length }} drawings</span>{% endblock %}
+{% block actions %}
+  <a class="btn" href="/pdf/{{ date }}">⬇ Download PDF</a>
+{% endblock %}
+{% block content %}
+<style>
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        overflow:hidden;display:flex;flex-direction:column;cursor:pointer;
+        transition:border-color .15s,transform .1s}
+  .card:hover{border-color:var(--accent-h);transform:translateY(-2px)}
+  .card .thumb{aspect-ratio:4/3;background:#0b1620;display:flex;
+        align-items:center;justify-content:center;overflow:hidden}
+  .card img{width:100%;height:100%;object-fit:contain}
+  .card .cap{padding:10px 12px;font-size:13px;border-top:1px solid var(--line);
+        word-break:break-word}
+  .toolbar{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+
+  /* viewer */
+  #viewer{position:fixed;inset:0;background:rgba(6,12,17,.97);z-index:100;
+        display:none;flex-direction:column}
+  #viewer.open{display:flex}
+  .v-top{display:flex;align-items:center;gap:14px;padding:14px 20px;
+        background:#0b1620;border-bottom:1px solid var(--line);flex:none}
+  .v-top .v-title{font-weight:600;font-size:15px;white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis}
+  .v-top .v-count{color:var(--muted);font-size:13px;flex:none}
+  .v-top .spacer{flex:1}
+  .v-stage{flex:1;overflow:hidden;position:relative;cursor:grab;touch-action:none}
+  .v-stage.grabbing{cursor:grabbing}
+  .v-stage img{position:absolute;top:0;left:0;transform-origin:0 0;
+        user-select:none;-webkit-user-drag:none;max-width:none}
+  .iconbtn{background:transparent;border:1px solid var(--line);color:var(--text);
+        width:38px;height:38px;border-radius:8px;font-size:17px;cursor:pointer;
+        display:inline-flex;align-items:center;justify-content:center;flex:none;
+        transition:border-color .15s,background .15s}
+  .iconbtn:hover{border-color:var(--accent-h);background:#16252f}
+  .v-nav{position:absolute;top:50%;transform:translateY(-50%);width:52px;height:52px;
+        border-radius:50%;background:rgba(11,22,32,.8);border:1px solid var(--line);
+        color:#fff;font-size:24px;cursor:pointer;display:flex;align-items:center;
+        justify-content:center;z-index:2;transition:background .15s}
+  .v-nav:hover{background:var(--accent)}
+  .v-prev{left:18px}.v-next{right:18px}
+  .v-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
+        color:var(--muted);font-size:12px;background:rgba(11,22,32,.7);
+        padding:6px 12px;border-radius:20px;z-index:2}
+  @media (max-width:640px){.v-hint{display:none}}
+</style>
+
+<div class="toolbar">
+  <a class="btn ghost" href="/">← Dates</a>
+  <span class="muted">{{ items|length }} drawings · click any to open the viewer</span>
+</div>
+
+<div class="grid">
+  {% for it in items %}
+  <div class="card" onclick="openViewer({{ loop.index0 }})">
+    <div class="thumb">
+      <img loading="lazy" src="/img/{{ date }}/{{ it.name|urlencode }}" alt="{{ it.title }}">
+    </div>
+    <div class="cap">{{ it.title }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- full-screen viewer -->
+<div id="viewer" aria-hidden="true">
+  <div class="v-top">
+    <span class="v-title" id="vTitle"></span>
+    <span class="v-count" id="vCount"></span>
+    <div class="spacer"></div>
+    <button class="iconbtn" title="Zoom out (-)" onclick="zoomBy(1/1.3)">−</button>
+    <button class="iconbtn" title="Zoom in (+)" onclick="zoomBy(1.3)">+</button>
+    <button class="iconbtn" title="Fit (0)" onclick="fit()">⤢</button>
+    <button class="iconbtn" id="vFull" title="Full screen (F)" onclick="toggleFull()">⛶</button>
+    <a class="iconbtn" id="vOpen" title="Open original" target="_blank">↗</a>
+    <button class="iconbtn" title="Close (Esc)" onclick="closeViewer()">✕</button>
+  </div>
+  <div class="v-stage" id="vStage">
+    <button class="v-nav v-prev" title="Previous (←)" onclick="step(-1)">‹</button>
+    <img id="vImg" alt="">
+    <button class="v-nav v-next" title="Next (→)" onclick="step(1)">›</button>
+    <div class="v-hint">scroll to zoom · drag to pan · ← → to navigate · double-click to fit</div>
+  </div>
+</div>
+
+<script>
+const DATE = "{{ date }}";
+const ITEMS = [
+  {% for it in items %}{name:{{ it.name|tojson }}, title:{{ it.title|tojson }}}{{ "," if not loop.last }}{% endfor %}
+];
+const imgUrl = it => `/img/${DATE}/${encodeURIComponent(it.name)}`;
+
+const viewer=document.getElementById('viewer'),
+      stage=document.getElementById('vStage'),
+      vimg=document.getElementById('vImg'),
+      vtitle=document.getElementById('vTitle'),
+      vcount=document.getElementById('vCount'),
+      vopen=document.getElementById('vOpen');
+
+let idx=0, scale=1, tx=0, ty=0, natW=0, natH=0;
+
+function render(){
+  vimg.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
+}
+function fit(){
+  if(!natW) return;
+  const sw=stage.clientWidth, sh=stage.clientHeight;
+  scale=Math.min(sw/natW, sh/natH);
+  tx=(sw-natW*scale)/2; ty=(sh-natH*scale)/2;
+  render();
+}
+function load(i){
+  idx=(i+ITEMS.length)%ITEMS.length;
+  const it=ITEMS[idx];
+  vtitle.textContent=it.title;
+  vcount.textContent=`${idx+1} / ${ITEMS.length}`;
+  vopen.href=imgUrl(it);
+  scale=1; tx=0; ty=0;
+  vimg.style.transform='translate(0,0) scale(1)';
+  vimg.onload=()=>{ natW=vimg.naturalWidth; natH=vimg.naturalHeight; fit(); };
+  vimg.src=imgUrl(it);
+}
+function openViewer(i){
+  viewer.classList.add('open'); viewer.setAttribute('aria-hidden','false');
+  load(i);
+  // requestFullscreen needs a user gesture — this is called from a click, so it's allowed
+  if(viewer.requestFullscreen){ viewer.requestFullscreen().catch(()=>{}); }
+}
+function closeViewer(){
+  viewer.classList.remove('open'); viewer.setAttribute('aria-hidden','true');
+  if(document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); }
+}
+function toggleFull(){
+  if(document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); }
+  else if(viewer.requestFullscreen){ viewer.requestFullscreen().catch(()=>{}); }
+}
+document.addEventListener('fullscreenchange',()=>{ if(viewer.classList.contains('open')) fit(); });
+function step(d){ load(idx+d); }
+
+function zoomAt(factor, cx, cy){
+  const ns=Math.min(Math.max(scale*factor, 0.05), 40);
+  // keep point under cursor fixed
+  tx = cx - (cx - tx) * (ns/scale);
+  ty = cy - (cy - ty) * (ns/scale);
+  scale=ns; render();
+}
+function zoomBy(f){
+  const r=stage.getBoundingClientRect();
+  zoomAt(f, r.width/2, r.height/2);
+}
+
+// wheel zoom
+stage.addEventListener('wheel',e=>{
+  if(!viewer.classList.contains('open')) return;
+  e.preventDefault();
+  const r=stage.getBoundingClientRect();
+  zoomAt(e.deltaY<0?1.15:1/1.15, e.clientX-r.left, e.clientY-r.top);
+},{passive:false});
+
+// drag pan
+let dragging=false, lx=0, ly=0;
+stage.addEventListener('pointerdown',e=>{
+  if(e.target.classList.contains('v-nav')) return;
+  dragging=true; lx=e.clientX; ly=e.clientY; stage.classList.add('grabbing');
+  stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener('pointermove',e=>{
+  if(!dragging) return;
+  tx+=e.clientX-lx; ty+=e.clientY-ly; lx=e.clientX; ly=e.clientY; render();
+});
+stage.addEventListener('pointerup',e=>{ dragging=false; stage.classList.remove('grabbing'); });
+stage.addEventListener('pointercancel',()=>{ dragging=false; stage.classList.remove('grabbing'); });
+
+// double-click toggles fit / 2x
+vimg.addEventListener('dblclick',e=>{
+  const r=stage.getBoundingClientRect();
+  const fitScale=Math.min(r.width/natW, r.height/natH);
+  if(scale > fitScale*1.05) fit();                              // zoomed in -> fit
+  else zoomAt(2.5/scale, e.clientX-r.left, e.clientY-r.top);    // -> 2.5x at cursor
+});
+
+// keyboard
+window.addEventListener('keydown',e=>{
+  if(!viewer.classList.contains('open')) return;
+  if(e.key==='Escape') closeViewer();
+  else if(e.key==='ArrowRight') step(1);
+  else if(e.key==='ArrowLeft') step(-1);
+  else if(e.key==='+'||e.key==='=') zoomBy(1.3);
+  else if(e.key==='-') zoomBy(1/1.3);
+  else if(e.key==='0') fit();
+  else if(e.key==='f'||e.key==='F') toggleFull();
+});
+window.addEventListener('resize',()=>{ if(viewer.classList.contains('open')) fit(); });
+
+// deep link: #5 opens 5th drawing
+if(location.hash){ const n=parseInt(location.hash.slice(1),10); if(n>=1&&n<=ITEMS.length) openViewer(n-1); }
+</script>
+{% endblock %}

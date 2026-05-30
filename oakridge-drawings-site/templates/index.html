@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .hero{display:flex;align-items:flex-end;justify-content:space-between;
+        flex-wrap:wrap;gap:16px;margin-bottom:28px}
+  .hero h1{font-size:30px;margin:0 0 6px}
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:28px;align-items:start}
+  @media (max-width:840px){.layout{grid-template-columns:1fr}}
+
+  /* calendar */
+  .cal{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+       padding:18px 20px}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;
+       margin-bottom:14px}
+  .cal-head .m{font-size:17px;font-weight:600}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .cal-grid .dow{text-align:center;font-size:11px;color:var(--muted);
+       text-transform:uppercase;letter-spacing:.06em;padding-bottom:4px}
+  .day{aspect-ratio:1;border-radius:8px;display:flex;align-items:center;
+       justify-content:center;font-size:14px;color:var(--muted);
+       border:1px solid transparent}
+  .day.blank{visibility:hidden}
+  .day.has{background:var(--accent);color:#fff;font-weight:600;cursor:pointer;
+       transition:background .12s,transform .08s}
+  .day.has:hover{background:var(--accent-h);transform:translateY(-1px)}
+  .day.today{outline:2px solid var(--accent-h);outline-offset:1px}
+  .iconbtn{background:transparent;border:1px solid var(--line);color:var(--text);
+       width:34px;height:34px;border-radius:8px;cursor:pointer;font-size:16px;
+       display:inline-flex;align-items:center;justify-content:center}
+  .iconbtn:hover{border-color:var(--accent-h)}
+
+  /* timeline */
+  .tl{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+      padding:18px 20px}
+  .tl h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;
+      color:var(--muted);margin:0 0 14px}
+  .tl ul{list-style:none;margin:0;padding:0;max-height:360px;overflow:auto}
+  .tl li{margin:0}
+  .tl a{display:flex;align-items:center;gap:12px;padding:10px 4px;
+      border-bottom:1px solid var(--line);transition:padding-left .12s}
+  .tl a:hover{padding-left:10px}
+  .tl .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex:none}
+  .tl .dot.latest{background:#2ec27e;box-shadow:0 0 0 4px rgba(46,194,126,.18)}
+  .tl .d{font-size:14px}
+  .tl .tag{margin-left:auto;font-size:11px;color:var(--muted)}
+  .typed{display:flex;gap:8px;margin-top:14px}
+  .typed input{flex:1;background:#0b1620;border:1px solid var(--line);
+      color:var(--text);border-radius:8px;padding:9px 12px;font-size:14px}
+</style>
+
+<div class="hero">
+  <div>
+    <h1>Oakridge Drawings</h1>
+    <p class="muted" style="margin:0">Pick a survey day — browse the drawings or grab them all as one PDF.</p>
+  </div>
+  {% if dates %}
+    <a class="btn" href="/d/{{ dates[0] }}">⚡ Latest survey · {{ dates[0] }}</a>
+  {% endif %}
+</div>
+
+{% if dates %}
+<div class="layout">
+  <div class="cal">
+    <div class="cal-head">
+      <button class="iconbtn" id="prevM" title="Previous month">‹</button>
+      <div class="m" id="monthLabel"></div>
+      <button class="iconbtn" id="nextM" title="Next month">›</button>
+    </div>
+    <div class="cal-grid" id="dows"></div>
+    <div class="cal-grid" id="days"></div>
+    <p class="muted" style="font-size:12px;margin:14px 0 0">
+      Highlighted days have surveys. {{ dates|length }} survey day{{ 's' if dates|length != 1 }} total.
+    </p>
+  </div>
+
+  <div class="tl">
+    <h2>Timeline · most recent</h2>
+    <ul>
+      {% for d in dates[:30] %}
+      <li><a href="/d/{{ d }}">
+        <span class="dot {{ 'latest' if loop.first }}"></span>
+        <span class="d">{{ d }}</span>
+        {% if loop.first %}<span class="tag">latest</span>{% endif %}
+      </a></li>
+      {% endfor %}
+    </ul>
+    <form class="typed" onsubmit="go(event)">
+      <input id="datebox" type="text" placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}">
+      <button class="btn" type="submit">Go</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="cal" style="max-width:520px">
+  <p>Couldn't reach the source server to list survey dates.</p>
+  <form class="typed" onsubmit="go(event)">
+    <input id="datebox" type="text" placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}" required>
+    <button class="btn" type="submit">Open</button>
+  </form>
+</div>
+{% endif %}
+
+<script>
+const DATES = {{ dates|tojson }};               // 'YYYY-MM-DD', newest first
+const HAS = new Set(DATES);
+const MONTHS = ["January","February","March","April","May","June","July",
+  "August","September","October","November","December"];
+const DOW = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+function go(e){
+  e.preventDefault();
+  const v=document.getElementById('datebox').value.trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(v)) location.href='/d/'+v;
+}
+
+if(DATES.length){
+  const dowEl=document.getElementById('dows');
+  DOW.forEach(d=>{const s=document.createElement('div');s.className='dow';s.textContent=d;dowEl.appendChild(s);});
+
+  // start on the latest survey's month
+  const [ly,lm] = DATES[0].split('-').map(Number);
+  let curY=ly, curM=lm-1;                         // curM 0-based
+
+  function pad(n){return String(n).padStart(2,'0');}
+  function render(){
+    document.getElementById('monthLabel').textContent = `${MONTHS[curM]} ${curY}`;
+    const grid=document.getElementById('days'); grid.innerHTML='';
+    const first=new Date(curY,curM,1).getDay();
+    const ndays=new Date(curY,curM+1,0).getDate();
+    for(let i=0;i<first;i++){const b=document.createElement('div');b.className='day blank';grid.appendChild(b);}
+    for(let d=1;d<=ndays;d++){
+      const iso=`${curY}-${pad(curM+1)}-${pad(d)}`;
+      const cell=document.createElement('div');
+      cell.textContent=d;
+      if(HAS.has(iso)){cell.className='day has';cell.title=iso;cell.onclick=()=>location.href='/d/'+iso;}
+      else cell.className='day';
+      grid.appendChild(cell);
+    }
+  }
+  document.getElementById('prevM').onclick=()=>{curM--;if(curM<0){curM=11;curY--;}render();};
+  document.getElementById('nextM').onclick=()=>{curM++;if(curM>11){curM=0;curY++;}render();};
+  render();
+}
+</script>
+{% endblock %}
